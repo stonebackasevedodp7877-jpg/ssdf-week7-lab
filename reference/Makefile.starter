@@ -1,4 +1,8 @@
-# HealthSync - starter project build, kept exactly as provided.
+# HealthSync - starter project build, recreated from the Week 7 slides.
+#
+# The Lab 7 starter zip and handout could not be found, so this file rebuilds
+# the starter build the slides describe: build date from the wall clock, no
+# -trimpath, release archive packed with the host's tar/gzip.
 #
 # Used only by TASK 1 ("Break It") in run_lab.sh:
 #     make -f reference/Makefile.starter release

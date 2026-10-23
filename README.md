@@ -65,7 +65,7 @@ and writes every command with its real output to `verification_log.txt`.
 |---|---|
 | `cmd/healthsync`, `internal/vitals` | the service |
 | `Makefile` | reproducible release build |
-| `reference/Makefile.starter` | starter build, kept unchanged for TASK 1 |
+| `reference/Makefile.starter` | starter build recreated from the Week 7 slides (starter zip not available), used by TASK 1 |
 | `tools/reprotar` | deterministic tar.gz writer (Go standard library only) |
 | `scripts/builder.sh` | one isolated builder (own checkout, cache, TZ, umask; optional tamper) |
 | `scripts/compare_builds.sh` | rebuild-and-compare gate, used locally and in CI |

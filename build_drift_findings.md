@@ -1,6 +1,8 @@
 # Task 1 - Break It: Why the Starter Build Is Not Reproducible (PO.3.2)
 
-**Build inspected:** `reference/Makefile.starter` (the HealthSync starter build, unchanged)
+**Build inspected:** `reference/Makefile.starter` - the HealthSync starter build, recreated from the
+Week 7 slides because the Lab 7 starter zip and handout could not be found (wall-clock build date, no
+`-trimpath`, host `tar -czf`). Hashes therefore differ from the slide 3 examples; the causes and fixes are the same.
 **Fixed build:** `Makefile` + `tools/reprotar` (release `v1.0.0`, commit `c1c4f83`)
 **Method:** `scripts/builder.sh` checks out the same commit into fresh directories and builds it
 as an independent builder would; `scripts/compare_builds.sh` and `scripts/diagnose_drift.py`
