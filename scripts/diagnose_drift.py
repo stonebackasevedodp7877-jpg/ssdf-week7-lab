@@ -111,6 +111,9 @@ def main(a, b):
         for line in meta_diffs[:6]:
             print(f"    {line}")
 
+    if not content_diffs and (meta_diffs or ga != gb):
+        print("[content] every file is byte-identical - only the archive wrapping differs")
+
     for name, d1, d2 in content_diffs:
         found += 1
         n = sum(1 for x, y in zip(d1, d2) if x != y) + abs(len(d1) - len(d2))

@@ -89,7 +89,7 @@ log "syft              : $(syft version 2>/dev/null | awk '/^Version/{print $2}'
 log "python            : $(python3 --version 2>&1)"
 log "Repository        : ${REPO_URL:-local}"
 log "Release ref       : ${REF} -> ${COMMIT}"
-log "SOURCE_DATE_EPOCH : ${EPOCH} ($(git log -1 --format=%cI "$COMMIT"))  <- commit time, not wall clock"
+log "SOURCE_DATE_EPOCH : ${EPOCH} ($(TZ=UTC git log -1 --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd "$COMMIT"))  <- commit time, not wall clock"
 log "Work directory    : ${WORK}"
 
 # =============================================================================
@@ -123,7 +123,8 @@ section "TASK 2.1 - Fix It: pinned inputs of the reproducible build"
 git -C "$ROOT" show "${COMMIT}:Makefile" > "$WORK/Makefile.fixed"
 log "\$ diff -u reference/Makefile.starter Makefile   (key changes)"
 diff -u "$ROOT/reference/Makefile.starter" "$WORK/Makefile.fixed" | grep -E '^[+-][^+-]' \
-  | grep -E 'trimpath|SOURCE_DATE_EPOCH|BUILD_DATE|GOTOOLCHAIN|GOFLAGS|CGO_ENABLED|reprotar|buildvcs|tar -czf' | tee -a "$LOG"
+  | grep -E 'trimpath|SOURCE_DATE_EPOCH|BUILD_DATE|GOTOOLCHAIN|GOFLAGS|CGO_ENABLED|reprotar|buildvcs|tar -czf' \
+  | grep -vE 'echo|^\+#' | tee -a "$LOG"
 run make -s -C "$WORK/starter/a/src/healthsync" -f "$WORK/Makefile.fixed" print-inputs
 log "vendored dependencies (locked by go.sum):"
 git show "${COMMIT}:vendor/modules.txt" | grep '^# ' | tee -a "$LOG"
@@ -152,6 +153,8 @@ log "  Build C  $(short "$BC/$LINUX_PKG")..."
 
 section "TASK 2.3 - Each fix is necessary: remove one fix at a time, builds must drift again"
 ABL_OK=0
+export BUILDER_GOCACHE="$WORK/shared-gocache"   # speed only: these builds are expected to differ
+log "# (ablation builders share one Go build cache for speed; builders A, B, C and T above/below each use a fresh one)"
 log "# (a) without -trimpath, two checkouts in different directories"
 MAKE_ARGS="TRIMPATH=" run scripts/builder.sh noTrim-1 "$ROOT" "$COMMIT" "$WORK/ablation/trim/one" >/dev/null || die "ablation build failed"
 MAKE_ARGS="TRIMPATH=" run scripts/builder.sh noTrim-2 "$ROOT" "$COMMIT" "$WORK/ablation/trim/two/deeper" >/dev/null || die "ablation build failed"
@@ -177,6 +180,7 @@ for d in x y; do
 done
 gate "$EV/task2_ablation_hosttar.txt" "MISMATCH|\[gzip|\[tar|\[content|/healthsync: mtime|GATE" "$WORK/ablation/tar/x/out" "$WORK/ablation/tar/y/out"
 expect_fail $? || ABL_OK=1
+unset BUILDER_GOCACHE
 
 section "TASK 2.4 - Rebuild-and-compare gate catches a compromised builder"
 log "# Builder T checks out the same commit, then the (simulated) compromised host slips an"
@@ -254,8 +258,10 @@ rm -f "$WORK/attack/attacker.key"
 # =============================================================================
 section "TASK 3.7 - SBOM of the shipped binary (provenance data, PS.3.2)"
 mkdir -p "$WORK/sbom"; tar -xzf "$REL/$LINUX_PKG" -C "$WORK/sbom"
-run syft "file:$WORK/sbom/${LINUX_PKG%.tar.gz}/healthsync" -o "cyclonedx-json=$REL/sbom.cyclonedx.json" -q \
-  || die "syft failed"
+log "\$ (cd <extracted ${LINUX_PKG%.tar.gz}> && syft file:healthsync --source-name healthsync --source-version ${VERSION} -o cyclonedx-json=${REL}/sbom.cyclonedx.json -q)"
+( cd "$WORK/sbom/${LINUX_PKG%.tar.gz}" && syft file:healthsync --source-name healthsync --source-version "$VERSION" \
+    -o "cyclonedx-json=$ROOT/$REL/sbom.cyclonedx.json" -q ) 2>&1 | tee -a "$LOG"
+[ -s "$REL/sbom.cyclonedx.json" ] || die "syft failed"
 run python3 - "$REL/sbom.cyclonedx.json" <<'PY'
 import json, sys
 b = json.load(open(sys.argv[1]))
@@ -290,7 +296,7 @@ mkdir -p "$ARCH/builders"
 cp "$WORK/builder-a/SHA256SUMS" "$ARCH/builders/A.SHA256SUMS"
 cp "$WORK/runner-2/home/ci/_work/HealthSync/builder-b/SHA256SUMS" "$ARCH/builders/B.SHA256SUMS"
 cp "$WORK/third-party/builder-c/SHA256SUMS" "$ARCH/builders/C.SHA256SUMS"
-chmod -R a-w "$ARCH"
+find "$ARCH" -type f -exec chmod 0444 {} +; find "$ARCH" -type d -exec chmod 0555 {} +   # read-only record
 run ls -lR "$ARCH"
 log "# Re-check the archived record on its own: manifest signature + its hashes vs. the release"
 VERIFY_TLOG=""; grep -q '"tlogEntries"' "$ARCH/release-manifest.json.sigstore.json" || VERIFY_TLOG="--insecure-ignore-tlog=true"
@@ -326,19 +332,4 @@ log "Release manifest signed + archived    : $(ok "$ARCHIVE_RC")"
 log "Completed (UTC)                       : $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 # ================================================================ package ===
-ZIP="${STUDENT}_SSDF_Week7.zip"
-STAGE="$(mktemp -d)/${STUDENT}_SSDF_Week7"
-mkdir -p "$STAGE/supporting/evidence" "$STAGE/supporting/.github"
-cp .github/workflows/reproducible_release.yml "$STAGE/"
-cp Makefile build_drift_findings.md "$LOG" cosign.pub "$STAGE/"
-cp "$REL/SHA256SUMS" "$REL/SHA256SUMS.sigstore.json" "$REL/release-manifest.json" \
-   "$REL/release-manifest.json.sigstore.json" "$REL/sbom.cyclonedx.json" "$STAGE/"
-cp -R cmd internal tools scripts reference vendor go.mod go.sum README.md LICENSE run_lab.sh "$STAGE/supporting/"
-cp .github/dependabot.yml "$STAGE/supporting/.github/"
-cp "$EV"/*.txt "$STAGE/supporting/evidence/"
-find "$STAGE" -name '__pycache__' -prune -exec rm -rf {} + 2>/dev/null
-rm -f "$ZIP"
-( cd "$(dirname "$STAGE")" && zip -qr "$OLDPWD/$ZIP" "$(basename "$STAGE")" )
-echo
-echo "打包完成: $(pwd)/${ZIP}"
-unzip -l "$ZIP" | tail -n +1 | grep -v '/supporting/vendor/'
+STUDENT="$STUDENT" scripts/package_submission.sh

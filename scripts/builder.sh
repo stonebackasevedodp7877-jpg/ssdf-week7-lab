@@ -15,6 +15,7 @@
 #   TAMPER=1        simulate a compromised builder that slips an extra file
 #                   into the tree after checkout (SolarWinds/SUNSPOT pattern)
 #   MAKE_ARGS       extra make arguments (used by the "each fix is necessary" test)
+#   BUILDER_GOCACHE share a Go build cache (speed only; default: a fresh, empty one)
 #
 # Prints "sha256  file" for every release archive and writes WORKDIR/SHA256SUMS.
 # Compatible with bash 3.2 (macOS) and bash 5 (Linux).
@@ -54,7 +55,8 @@ func init() {
 GO
 fi
 
-export GOCACHE="$WORK/gocache"        # empty build cache: nothing reused
+# Own, empty build cache unless the caller shares one on purpose (ablation runs).
+export GOCACHE="${BUILDER_GOCACHE:-$WORK/gocache}"
 export TZ="${BUILDER_TZ:-UTC}"
 export LANG="${BUILDER_LANG:-C}"
 umask "${BUILDER_UMASK:-022}"
