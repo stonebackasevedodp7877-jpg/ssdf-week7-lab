@@ -355,12 +355,36 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-      - name: Publish GitHub Release (tags only)
+      - name: Publish signed files to the GitHub Release (tags only)
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "HealthSync $TAG" \
-            --notes "Reproducible release. Verify: scripts/verify_release.sh <dir> --identity https://github.com/${GITHUB_WORKFLOW_REF} --issuer ${OIDC_ISSUER}" \
-            release/*.tar.gz release/SHA256SUMS release/SHA256SUMS.sigstore.json
+          {
+            echo "Reproducible HealthSync release built from \`${GITHUB_SHA}\` by two independent builders"
+            echo "(ubuntu-24.04 and macos-15) whose archives matched bit for bit before signing."
+            echo
+            echo '```'
+            cat release/SHA256SUMS
+            echo '```'
+            echo
+            echo "Verify (signer identity pinned to this workflow and tag):"
+            echo
+            echo '```'
+            echo "scripts/verify_release.sh <download-dir> \\"
+            echo "  --identity https://github.com/${GITHUB_WORKFLOW_REF} \\"
+            echo "  --issuer ${OIDC_ISSUER}"
+            echo '```'
+            echo
+            echo "Rebuild it yourself: \`git checkout ${TAG} && make release && shasum -a 256 dist/*.tar.gz\`"
+            echo "Provenance record (manifest, SBOM, signatures): workflow artifact release-evidence-${GITHUB_SHA}."
+          } > notes.md
+          FILES="release/healthsync-1.0.0-darwin-arm64.tar.gz release/${LINUX_PKG} release/SHA256SUMS release/SHA256SUMS.sigstore.json"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # release page created by hand when the tag was cut: attach the signed files
+            gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber $FILES
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --title "HealthSync $TAG" --notes-file notes.md
+          else
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "HealthSync $TAG" --notes-file notes.md $FILES
+          fi
