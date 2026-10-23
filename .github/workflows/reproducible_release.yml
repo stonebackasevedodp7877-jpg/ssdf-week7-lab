@@ -1,0 +1,366 @@
+# SSDF Week 7 - Reproducible build, rebuild-and-compare gate, signed release
+# NIST SP 800-218 v1.1: PO.3.2 (Example 4), PO.5.1, PW.6.1, PW.6.2, PS.2.1, PS.3.1, PS.3.2
+#
+#   test --> build A (ubuntu-24.04) --+--> compare --> sign --> verify --> archive
+#        --> build B (macos-15)     --+   (gate)      (keyless) (consumer)  (evidence apart;
+#                                                                           GitHub Release on v* tags)
+#
+#   * build: two independent jobs on two different runner OSes, different checkout
+#     paths, time zones and umasks, build the same commit with the reproducible
+#     Makefile. Dependencies come only from vendor/ (GOPROXY=off).
+#   * compare: fails the pipeline if the two archives differ by a single byte -
+#     catches a drifting or tampered builder before anything is signed.
+#   * sign: separate job that never runs build code; keyless cosign (short-lived
+#     GitHub OIDC certificate -> Fulcio -> Rekor), so no long-lived signing key
+#     exists anywhere, least of all on a build host. Also SLSA build provenance.
+#   * verify: consumer view with the signer identity pinned to this workflow,
+#     plus negative tests (tampered file, forged hash list).
+#   * archive: verification data and provenance kept as a separate 90-day
+#     artifact, apart from the release files.
+# Carried over from Week 6: read-all default token, per-job permissions, every
+# action pinned to a full commit SHA, harden-runner egress audit.
+
+name: Reproducible Release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: read-all
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  COSIGN_VERSION: v3.1.4
+  OIDC_ISSUER: https://token.actions.githubusercontent.com
+  LINUX_PKG: healthsync-1.0.0-linux-amd64.tar.gz
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Unit tests and dependency lock (PW.4.4, PO.3.2)
+  # ---------------------------------------------------------------------------
+  test:
+    name: Tests + dependency lock check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod   # reads the `toolchain` directive: exact pinned release
+          cache: false
+
+      - name: Verify module checksums (go.sum + sum.golang.org)
+        run: GOFLAGS=-mod=mod go mod verify
+
+      - name: vendor/ must be exactly what go.sum locks
+        run: |
+          go mod vendor
+          git diff --exit-code -- vendor/ go.mod go.sum
+
+      - name: Vet + unit tests (offline, vendored)
+        env:
+          GOPROXY: "off"
+        run: make test
+
+  # ---------------------------------------------------------------------------
+  # 2. Two independent builders (PO.3.2 Ex. 4, PO.5.1, PW.6.1, PW.6.2)
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build ${{ matrix.builder }} (${{ matrix.os }})
+    needs: test
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - builder: A
+            os: ubuntu-24.04
+            path: healthsync
+            tz: UTC
+            umask: "0022"
+          - builder: B
+            os: macos-15
+            path: ci/other-checkout/HealthSync
+            tz: Asia/Shanghai
+            umask: "0077"
+    steps:
+      - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        if: runner.os == 'Linux'
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: ${{ matrix.path }}
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ${{ matrix.path }}/go.mod
+          cache: false            # no shared cache between builders or runs
+
+      - name: Reproducible release build (no network for dependencies)
+        working-directory: ${{ matrix.path }}
+        env:
+          TZ: ${{ matrix.tz }}
+          BUILD_UMASK: ${{ matrix.umask }}
+          BUILDER: ${{ matrix.builder }}
+          GOPROXY: "off"
+        run: |
+          umask "$BUILD_UMASK"
+          make print-inputs
+          make release DIST="$RUNNER_TEMP/out"
+          cd "$RUNNER_TEMP/out"
+          shasum -a 256 *.tar.gz > "builder-${BUILDER}.sha256"
+          echo "### Builder ${BUILDER} on ${RUNNER_OS}" >> "$GITHUB_STEP_SUMMARY"
+          sed 's/^/    /' "builder-${BUILDER}.sha256" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ matrix.builder }}
+          path: ${{ runner.temp }}/out/
+          if-no-files-found: error
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # 3. Rebuild-and-compare gate: any difference fails the pipeline
+  # ---------------------------------------------------------------------------
+  compare:
+    name: Rebuild-and-compare gate
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: release-*
+          path: builds
+
+      - name: Compare builder A (Linux) and builder B (macOS)
+        run: |
+          set -o pipefail
+          scripts/compare_builds.sh builds/release-A builds/release-B | tee compare.txt
+          { echo '### Rebuild-and-compare gate'; echo '```'; cat compare.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # 4. Sign the hash list and manifest - no build code runs in this job (PS.2.1)
+  # ---------------------------------------------------------------------------
+  sign:
+    name: Hash list, SBOM, manifest, keyless signatures
+    needs: compare
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write        # short-lived OIDC token -> Fulcio signing certificate
+      attestations: write    # SLSA build provenance
+    steps:
+      - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: release-*
+          path: builds
+
+      - name: Release files + SHA256SUMS (from the gate-approved build)
+        run: |
+          mkdir release
+          cp builds/release-A/*.tar.gz release/
+          cd release && shasum -a 256 *.tar.gz > SHA256SUMS && cat SHA256SUMS
+
+      - name: Extract shipped binary for the SBOM
+        run: mkdir sbom-input && tar -xzf "release/${LINUX_PKG}" -C sbom-input
+
+      - name: CycloneDX SBOM of the shipped binary (syft)
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          file: sbom-input/healthsync-1.0.0-linux-amd64/healthsync
+          format: cyclonedx-json
+          output-file: release/sbom.cyclonedx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Release manifest (commit, toolchain, dependencies, builders, hashes)
+        env:
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          python3 scripts/make_manifest.py --release-dir release --project-root . \
+            --repo-url "$REPO_URL" --commit "$GITHUB_SHA" --ref "$REF_NAME" \
+            --source-date-epoch "$(git log -1 --format=%ct)" \
+            --go-version "$(sed -n 's/^toolchain //p' go.mod)" \
+            --builder "A: ubuntu-24.04, path healthsync, TZ=UTC, umask 0022" \
+            --builder-sums A=builds/release-A/builder-A.sha256 \
+            --builder "B: macos-15, path ci/other-checkout/HealthSync, TZ=Asia/Shanghai, umask 0077" \
+            --builder-sums B=builds/release-B/builder-B.sha256 \
+            --sbom release/sbom.cyclonedx.json \
+            --signing "cosign keyless: Fulcio certificate for https://github.com/${GITHUB_WORKFLOW_REF}, issuer ${OIDC_ISSUER}, Rekor-logged" \
+            --built-by "GitHub Actions run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            --out release/release-manifest.json
+
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: ${{ env.COSIGN_VERSION }}
+
+      - name: Keyless sign SHA256SUMS and the manifest (OIDC -> Fulcio -> Rekor)
+        run: |
+          cosign sign-blob --yes --bundle release/SHA256SUMS.sigstore.json release/SHA256SUMS
+          cosign sign-blob --yes --bundle release/release-manifest.json.sigstore.json release/release-manifest.json
+
+      - name: SLSA build provenance for the release archives
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release/*.tar.gz
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: signed-release
+          path: release/
+          if-no-files-found: error
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # 5. Verify like a consumer, and prove tampering is rejected (PS.2.1)
+  # ---------------------------------------------------------------------------
+  verify:
+    name: Verify release + negative tests
+    needs: sign
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      attestations: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: ${{ env.COSIGN_VERSION }}
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: signed-release
+          path: release
+
+      - name: Verify signature (identity pinned to this workflow) + every hash
+        run: |
+          IDENTITY="https://github.com/${GITHUB_WORKFLOW_REF}"
+          echo "trusted signer: $IDENTITY"
+          scripts/verify_release.sh release --identity "$IDENTITY" --issuer "$OIDC_ISSUER"
+          cosign verify-blob --certificate-identity "$IDENTITY" --certificate-oidc-issuer "$OIDC_ISSUER" \
+            --bundle release/release-manifest.json.sigstore.json release/release-manifest.json
+
+      - name: Verify SLSA provenance of each archive
+        run: |
+          for f in release/*.tar.gz; do
+            gh attestation verify "$f" --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/reproducible_release.yml"
+          done
+
+      - name: "Negative test: tampered archive must be rejected"
+        run: |
+          IDENTITY="https://github.com/${GITHUB_WORKFLOW_REF}"
+          cp -R release attack1
+          printf 'implant' >> "attack1/${LINUX_PKG}"
+          if scripts/verify_release.sh attack1 --identity "$IDENTITY" --issuer "$OIDC_ISSUER"; then
+            echo "::error::tampered archive was accepted"; exit 1
+          fi
+          echo "rejected as expected"
+
+      - name: "Negative test: forged hash list must be rejected"
+        run: |
+          IDENTITY="https://github.com/${GITHUB_WORKFLOW_REF}"
+          cp -R attack1 attack2
+          (cd attack2 && shasum -a 256 *.tar.gz > SHA256SUMS && shasum -a 256 -c SHA256SUMS)
+          if scripts/verify_release.sh attack2 --identity "$IDENTITY" --issuer "$OIDC_ISSUER"; then
+            echo "::error::forged hash list was accepted"; exit 1
+          fi
+          echo "rejected as expected"
+
+  # ---------------------------------------------------------------------------
+  # 6. Archive verification data apart from the release files (PS.3.1, PS.3.2)
+  # ---------------------------------------------------------------------------
+  archive:
+    name: Archive evidence + publish release
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write        # only used on v* tags to create the GitHub Release
+    steps:
+      - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: signed-release
+          path: release
+
+      - name: Collect provenance record (kept apart from the release files)
+        run: |
+          mkdir -p evidence
+          cp release/SHA256SUMS release/SHA256SUMS.sigstore.json release/release-manifest.json \
+             release/release-manifest.json.sigstore.json release/sbom.cyclonedx.json evidence/
+          ls -l evidence
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-evidence-${{ github.sha }}
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish GitHub Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "HealthSync $TAG" \
+            --notes "Reproducible release. Verify: scripts/verify_release.sh <dir> --identity https://github.com/${GITHUB_WORKFLOW_REF} --issuer ${OIDC_ISSUER}" \
+            release/*.tar.gz release/SHA256SUMS release/SHA256SUMS.sigstore.json

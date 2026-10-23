@@ -1,0 +1,15 @@
+# Keep pinned inputs current through reviewed PRs (PO.3.2 change management).
+# Every update PR re-runs the rebuild-and-compare gate.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
