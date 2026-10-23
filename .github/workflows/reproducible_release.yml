@@ -208,7 +208,7 @@ jobs:
         run: mkdir sbom-input && tar -xzf "ci-release/${LINUX_PKG}" -C sbom-input
 
       - name: CycloneDX SBOM of the shipped binary (syft)
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           file: sbom-input/healthsync-1.0.0-linux-amd64/healthsync
           format: cyclonedx-json
