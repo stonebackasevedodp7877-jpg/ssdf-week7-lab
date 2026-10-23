@@ -1,0 +1,99 @@
+{
+  "schema": "healthsync.release-manifest/v1",
+  "project": "HealthSync",
+  "version": "1.0.0",
+  "source": {
+    "repository": "https://github.com/stonebackasevedodp7877-jpg/ssdf-week7-lab",
+    "ref": "v1.0.0",
+    "commit": "c1c4f83b9dacce7d112597b27d976d84bec21baa",
+    "source_date_epoch": 1792731454,
+    "source_date_utc": "2026-10-23T04:57:34Z"
+  },
+  "toolchain": {
+    "go": "go1.27.3",
+    "pinned_by": "go.mod toolchain directive + GOTOOLCHAIN",
+    "build": {
+      "go_build": "go build -trimpath -buildvcs=false -ldflags \"-buildid= -X main.version=... -X main.commit=<commit> -X main.buildDate=<SOURCE_DATE_EPOCH as UTC>\"",
+      "env": {
+        "CGO_ENABLED": "0",
+        "GOFLAGS": "-mod=vendor",
+        "TZ": "UTC",
+        "LC_ALL": "C",
+        "GOTOOLCHAIN": "<toolchain line of go.mod>"
+      },
+      "targets": [
+        "linux/amd64",
+        "darwin/arm64"
+      ],
+      "packager": "tools/reprotar (sorted entries, mtime=SOURCE_DATE_EPOCH, uid/gid 0, modes 0755/0644, USTAR, gzip without name/time)"
+    }
+  },
+  "dependencies": [
+    {
+      "module": "github.com/google/uuid",
+      "version": "v1.6.0",
+      "go_sum": "h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=",
+      "purl": "pkg:golang/github.com/google/uuid@v1.6.0",
+      "source": "vendor/ (no network at build time)"
+    }
+  ],
+  "reproducibility": {
+    "builders": [
+      {
+        "name": "A",
+        "environment": "clone, TZ=UTC, umask 022",
+        "sha256": {
+          "healthsync-1.0.0-darwin-arm64.tar.gz": "8cf5414380b8773ca9cc5768f7f4353e99543bdc34e420faf9002835e62c9ed7",
+          "healthsync-1.0.0-linux-amd64.tar.gz": "ed805f2870f8e14383cb0d4699185cf3d318b821d72a437ae51d650ba6325c92"
+        },
+        "matches_release": true
+      },
+      {
+        "name": "B",
+        "environment": "clone, TZ=Asia/Shanghai, umask 077, other path",
+        "sha256": {
+          "healthsync-1.0.0-darwin-arm64.tar.gz": "8cf5414380b8773ca9cc5768f7f4353e99543bdc34e420faf9002835e62c9ed7",
+          "healthsync-1.0.0-linux-amd64.tar.gz": "ed805f2870f8e14383cb0d4699185cf3d318b821d72a437ae51d650ba6325c92"
+        },
+        "matches_release": true
+      },
+      {
+        "name": "C",
+        "environment": "git-archive export, no .git, TZ=America/Chicago",
+        "sha256": {
+          "healthsync-1.0.0-darwin-arm64.tar.gz": "8cf5414380b8773ca9cc5768f7f4353e99543bdc34e420faf9002835e62c9ed7",
+          "healthsync-1.0.0-linux-amd64.tar.gz": "ed805f2870f8e14383cb0d4699185cf3d318b821d72a437ae51d650ba6325c92"
+        },
+        "matches_release": true
+      }
+    ],
+    "all_identical": true,
+    "gate": "scripts/compare_builds.sh (CI job `compare`)"
+  },
+  "artifacts": [
+    {
+      "name": "healthsync-1.0.0-darwin-arm64.tar.gz",
+      "sha256": "8cf5414380b8773ca9cc5768f7f4353e99543bdc34e420faf9002835e62c9ed7",
+      "size": 5348654
+    },
+    {
+      "name": "healthsync-1.0.0-linux-amd64.tar.gz",
+      "sha256": "ed805f2870f8e14383cb0d4699185cf3d318b821d72a437ae51d650ba6325c92",
+      "size": 5587513
+    }
+  ],
+  "sbom": {
+    "file": "sbom.cyclonedx.json",
+    "format": "CycloneDX JSON",
+    "sha256": "53bc216e34fcae900b1b0f16e53ca8189d928b183f48a609754a428e12533df6"
+  },
+  "verification": {
+    "hash_list": "SHA256SUMS",
+    "hash_list_signature": "SHA256SUMS.sigstore.json",
+    "manifest_signature": "release-manifest.json.sigstore.json",
+    "signing": "cosign key pair; public key cosign.pub (sha256 5518a9d219db1639...)",
+    "verify_command": "scripts/verify_release.sh <release-dir> --key cosign.pub"
+  },
+  "built_by": "local workstation Linux x86_64 via run_lab.sh",
+  "generated_utc": "2026-10-23T05:12:39Z"
+}

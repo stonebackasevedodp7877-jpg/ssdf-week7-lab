@@ -1,0 +1,418 @@
+
+==========================================================================
+SSDF Week 7 - Verification Log | student: ShuchenMeng
+==========================================================================
+Date (UTC)        : 2026-10-23T05:07:21Z
+Host              : Linux 6.18.44-fc-v153 x86_64
+git               : git version 2.43.0
+make              : GNU Make 4.3
+go (on PATH)      : go version go1.27.3 linux/amd64
+pinned toolchain  : go1.27.3  (go.mod; the go command switches to it automatically)
+cosign            : v3.1.4
+syft              : 1.55.0
+python            : Python 3.13.16
+Repository        : https://github.com/stonebackasevedodp7877-jpg/ssdf-week7-lab
+Release ref       : v1.0.0 -> c1c4f83b9dacce7d112597b27d976d84bec21baa
+SOURCE_DATE_EPOCH : 1792731454 (2026-10-23T04:57:34Z)  <- commit time, not wall clock
+Work directory    : /tmp/ssdf-w7.kDrQYg
+
+==========================================================================
+TASK 1.1 - Break It: build the STARTER project twice from the same commit
+==========================================================================
+# Starter build = reference/Makefile.starter (wall-clock date, no -trimpath, host tar/gzip).
+# Builder A and builder B check out the same commit into different directories,
+# a few seconds apart - exactly what two CI runners or two developers would do.
+$ scripts/builder.sh A-starter . c1c4f83b9dacce7d112597b27d976d84bec21baa /tmp/ssdf-w7.kDrQYg/starter/a reference/Makefile.starter
+builder A-starter: 10902802aae2cb90ad4bdc47835aa9c42cdf26894d2b070c23869fe1c8ff3cb2  healthsync-1.0.0-darwin-arm64.tar.gz
+builder A-starter: 06a0261c59cd56f99fac0f9d8d681a0bfa378d21745044b62538036a2c668ebf  healthsync-1.0.0-linux-amd64.tar.gz
+[exit code: 0]
+$ scripts/builder.sh B-starter . c1c4f83b9dacce7d112597b27d976d84bec21baa /tmp/ssdf-w7.kDrQYg/starter/other-checkout/b reference/Makefile.starter
+builder B-starter: 8ebe2807857b423a4b232bf3993eb3b5b66538e13691b5915bff3db82b0cb289  healthsync-1.0.0-darwin-arm64.tar.gz
+builder B-starter: 34de43621eb9c4b9844fdc31acacc53c11d8a63eab494c3a646ffc16a0e9c422  healthsync-1.0.0-linux-amd64.tar.gz
+[exit code: 0]
+
+BEFORE: STARTER MAKEFILE  (SHA-256 of healthsync-1.0.0-linux-amd64.tar.gz, first 8 hex digits)
+  Build A  06a0261c...
+  Build B  34de4362...
+  DIFFERENT
+
+==========================================================================
+TASK 1.2 - Diagnose: where do the two starter builds differ?
+==========================================================================
+$ scripts/compare_builds.sh /tmp/ssdf-w7.kDrQYg/starter/a/out /tmp/ssdf-w7.kDrQYg/starter/other-checkout/b/out
+  B1 = /tmp/ssdf-w7.kDrQYg/starter/a/out
+  B2 = /tmp/ssdf-w7.kDrQYg/starter/other-checkout/b/out
+artifact                               B1 sha256          B2 sha256          result
+healthsync-1.0.0-darwin-arm64.tar.gz   10902802aae2cb90.. 8ebe2807857b423a.. MISMATCH
+  -- diagnosis: /tmp/ssdf-w7.kDrQYg/starter/a/out/healthsync-1.0.0-darwin-arm64.tar.gz vs /tmp/ssdf-w7.kDrQYg/starter/other-checkout/b/out/healthsync-1.0.0-darwin-arm64.tar.gz
+     [tar metadata] 4 header field(s) differ, e.g.:
+         healthsync-1.0.0-darwin-arm64: mtime 2026-10-23 05:07:56 UTC vs 2026-10-23 05:08:34 UTC
+         healthsync-1.0.0-darwin-arm64/healthsync: mtime 2026-10-23 05:07:56 UTC vs 2026-10-23 05:08:34 UTC
+         healthsync-1.0.0-darwin-arm64/README.md: mtime 2026-10-23 05:07:56 UTC vs 2026-10-23 05:08:34 UTC
+         healthsync-1.0.0-darwin-arm64/LICENSE: mtime 2026-10-23 05:07:56 UTC vs 2026-10-23 05:08:34 UTC
+     [content] healthsync-1.0.0-darwin-arm64/healthsync: sha256 6ae95ed9bad7 vs afa5c94975e4, 3823834 byte(s) differ, size 9401202 vs 9401202
+         embedded timestamp: ['2026-10-23T05:07:21Z'] vs ['2026-10-23T05:07:59Z']  <- wall clock of the build host
+         absolute build path: ['/tmp/ssdf-w7.kDrQYg/starter/a/src/healthsync'] vs ['/tmp/ssdf-w7.kDrQYg/starter/other-checkout/b/src/healthsync']  <- checkout directory baked in
+healthsync-1.0.0-linux-amd64.tar.gz    06a0261c59cd56f9.. 34de43621eb9c4b9.. MISMATCH
+  -- diagnosis: /tmp/ssdf-w7.kDrQYg/starter/a/out/healthsync-1.0.0-linux-amd64.tar.gz vs /tmp/ssdf-w7.kDrQYg/starter/other-checkout/b/out/healthsync-1.0.0-linux-amd64.tar.gz
+     [tar metadata] 4 header field(s) differ, e.g.:
+         healthsync-1.0.0-linux-amd64: mtime 2026-10-23 05:07:38 UTC vs 2026-10-23 05:08:16 UTC
+         healthsync-1.0.0-linux-amd64/healthsync: mtime 2026-10-23 05:07:38 UTC vs 2026-10-23 05:08:16 UTC
+         healthsync-1.0.0-linux-amd64/README.md: mtime 2026-10-23 05:07:38 UTC vs 2026-10-23 05:08:16 UTC
+         healthsync-1.0.0-linux-amd64/LICENSE: mtime 2026-10-23 05:07:38 UTC vs 2026-10-23 05:08:16 UTC
+     [content] healthsync-1.0.0-linux-amd64/healthsync: sha256 9a460ed23512 vs d1039b6a0d59, 4826752 byte(s) differ, size 9932940 vs 9933052
+         embedded timestamp: ['2026-10-23T05:07:21Z'] vs ['2026-10-23T05:07:59Z']  <- wall clock of the build host
+         absolute build path: ['/tmp/ssdf-w7.kDrQYg/starter/a/src/healthsync'] vs ['/tmp/ssdf-w7.kDrQYg/starter/other-checkout/b/src/healthsync']  <- checkout directory baked in
+GATE: FAIL - builders disagree; do NOT sign or publish this release
+[exit code: 1]
+# -> gate result on the starter build: exit 1 (a CI rebuild-and-compare job would block this release)
+# Root causes (see build_drift_findings.md):
+#   embedded timestamp   - BUILD_DATE from `date` on the build host
+#   absolute build path  - compiler records the checkout directory (no -trimpath)
+#   archive metadata     - tar stores per-file mtimes of the fresh checkout/build
+
+==========================================================================
+TASK 2.1 - Fix It: pinned inputs of the reproducible build
+==========================================================================
+$ diff -u reference/Makefile.starter Makefile   (key changes)
+-BUILD_DATE := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
++export GOTOOLCHAIN := $(GO_PINNED)
++export GOFLAGS     := -mod=vendor
++export CGO_ENABLED := 0
++SOURCE_DATE_EPOCH ?= $(shell git log -1 --format=%ct 2>/dev/null)
++BUILD_DATE := $(shell date -u -d @$(SOURCE_DATE_EPOCH) +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || \
++                      date -u -r $(SOURCE_DATE_EPOCH) +%Y-%m-%dT%H:%M:%SZ)
++TRIMPATH := -trimpath
++LDFLAGS  := -buildid= -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.buildDate=$(BUILD_DATE)
++GOBUILD   = go build $(TRIMPATH) -buildvcs=false -ldflags "$(LDFLAGS)"
++	go build -trimpath -buildvcs=false -o "$(DIST)/.stage/reprotar" ./tools/reprotar; \
+-	    -ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.buildDate=$(BUILD_DATE)" \
+-	  tar -czf $(DIST)/$$pkg.tar.gz -C $(DIST) $$pkg || exit 1; \
++	  "$(DIST)/.stage/reprotar" -o "$(DIST)/$$pkg.tar.gz" -mtime $(SOURCE_DATE_EPOCH) \
+$ make -s -C /tmp/ssdf-w7.kDrQYg/starter/a/src/healthsync -f /tmp/ssdf-w7.kDrQYg/Makefile.fixed print-inputs
+COMMIT=c1c4f83b9dacce7d112597b27d976d84bec21baa
+SOURCE_DATE_EPOCH=1792731454
+BUILD_DATE=2026-10-23T04:57:34Z
+GO_PINNED=go1.27.3
+GOFLAGS=-mod=vendor
+CGO_ENABLED=0
+TRIMPATH=-trimpath
+LDFLAGS=-buildid= -X main.version=1.0.0 -X main.commit=c1c4f83b9dacce7d112597b27d976d84bec21baa -X main.buildDate=2026-10-23T04:57:34Z
+[exit code: 0]
+vendored dependencies (locked by go.sum):
+# github.com/google/uuid v1.6.0
+
+==========================================================================
+TASK 2.2 - Three independent builders, deliberately different environments
+==========================================================================
+# A: clone, TZ=UTC,               umask 022, LANG=C
+# B: clone, TZ=Asia/Shanghai,     umask 077, LANG=en_US.UTF-8, deeper path, later
+# C: third-party rebuild from a `git archive` source export (no .git),
+#    TZ=America/Chicago, COMMIT and SOURCE_DATE_EPOCH passed in explicitly
+$ scripts/builder.sh A . c1c4f83b9dacce7d112597b27d976d84bec21baa /tmp/ssdf-w7.kDrQYg/builder-a
+builder A: 8cf5414380b8773ca9cc5768f7f4353e99543bdc34e420faf9002835e62c9ed7  healthsync-1.0.0-darwin-arm64.tar.gz
+builder A: ed805f2870f8e14383cb0d4699185cf3d318b821d72a437ae51d650ba6325c92  healthsync-1.0.0-linux-amd64.tar.gz
+[exit code: 0]
+$ scripts/builder.sh B . c1c4f83b9dacce7d112597b27d976d84bec21baa /tmp/ssdf-w7.kDrQYg/runner-2/home/ci/_work/HealthSync/builder-b
+builder B: 8cf5414380b8773ca9cc5768f7f4353e99543bdc34e420faf9002835e62c9ed7  healthsync-1.0.0-darwin-arm64.tar.gz
+builder B: ed805f2870f8e14383cb0d4699185cf3d318b821d72a437ae51d650ba6325c92  healthsync-1.0.0-linux-amd64.tar.gz
+[exit code: 0]
+$ scripts/builder.sh C . c1c4f83b9dacce7d112597b27d976d84bec21baa /tmp/ssdf-w7.kDrQYg/third-party/builder-c
+builder C: 8cf5414380b8773ca9cc5768f7f4353e99543bdc34e420faf9002835e62c9ed7  healthsync-1.0.0-darwin-arm64.tar.gz
+builder C: ed805f2870f8e14383cb0d4699185cf3d318b821d72a437ae51d650ba6325c92  healthsync-1.0.0-linux-amd64.tar.gz
+[exit code: 0]
+$ scripts/compare_builds.sh /tmp/ssdf-w7.kDrQYg/builder-a/out /tmp/ssdf-w7.kDrQYg/runner-2/home/ci/_work/HealthSync/builder-b/out /tmp/ssdf-w7.kDrQYg/third-party/builder-c/out
+  B1 = /tmp/ssdf-w7.kDrQYg/builder-a/out
+  B2 = /tmp/ssdf-w7.kDrQYg/runner-2/home/ci/_work/HealthSync/builder-b/out
+  B3 = /tmp/ssdf-w7.kDrQYg/third-party/builder-c/out
+artifact                               B1 sha256          B2 sha256          B3 sha256          result
+healthsync-1.0.0-darwin-arm64.tar.gz   8cf5414380b8773c.. 8cf5414380b8773c.. 8cf5414380b8773c.. IDENTICAL
+healthsync-1.0.0-linux-amd64.tar.gz    ed805f2870f8e143.. ed805f2870f8e143.. ed805f2870f8e143.. IDENTICAL
+GATE: PASS - all 3 builders produced bit-for-bit identical archives
+[exit code: 0]
+
+AFTER: REPRODUCIBLE MAKEFILE  (SHA-256 of healthsync-1.0.0-linux-amd64.tar.gz, first 8 hex digits)
+  Build A  ed805f28...
+  Build B  ed805f28...
+  Build C  ed805f28...
+  IDENTICAL
+
+==========================================================================
+TASK 2.3 - Each fix is necessary: remove one fix at a time, builds must drift again
+==========================================================================
+# (ablation builders share one Go build cache for speed; builders A, B, C and T above/below each use a fresh one)
+# (a) without -trimpath, two checkouts in different directories
+$ scripts/builder.sh noTrim-1 . c1c4f83b9dacce7d112597b27d976d84bec21baa /tmp/ssdf-w7.kDrQYg/ablation/trim/one
+builder noTrim-1: 444a8955807111c5325b7c886e9c4139a5054f5b38b7dce622a151789e4fc39c  healthsync-1.0.0-darwin-arm64.tar.gz
+builder noTrim-1: 1dece92279f663108f6cf299a2115bae5ae59ca43932b566989fb85e28bda5cf  healthsync-1.0.0-linux-amd64.tar.gz
+[exit code: 0]
+$ scripts/builder.sh noTrim-2 . c1c4f83b9dacce7d112597b27d976d84bec21baa /tmp/ssdf-w7.kDrQYg/ablation/trim/two/deeper
+builder noTrim-2: 1e7947a089bd91b04291fccafbe0ee54d8e9f17ef649cecf8b74ef007bccbb09  healthsync-1.0.0-darwin-arm64.tar.gz
+builder noTrim-2: 62ec051efda9c5b519432daaa9b14731cd3c6cca63d62eddd3140eb7bb931ded  healthsync-1.0.0-linux-amd64.tar.gz
+[exit code: 0]
+$ scripts/compare_builds.sh /tmp/ssdf-w7.kDrQYg/ablation/trim/one/out /tmp/ssdf-w7.kDrQYg/ablation/trim/two/deeper/out
+healthsync-1.0.0-darwin-arm64.tar.gz   444a8955807111c5.. 1e7947a089bd91b0.. MISMATCH
+         absolute build path: ['/tmp/ssdf-w7.kDrQYg/ablation/trim/one/src/healthsync'] vs ['/tmp/ssdf-w7.kDrQYg/ablation/trim/two/deeper/src/healthsync']  <- checkout directory baked in
+healthsync-1.0.0-linux-amd64.tar.gz    1dece92279f66310.. 62ec051efda9c5b5.. MISMATCH
+         absolute build path: ['/tmp/ssdf-w7.kDrQYg/ablation/trim/one/src/healthsync'] vs ['/tmp/ssdf-w7.kDrQYg/ablation/trim/two/deeper/src/healthsync']  <- checkout directory baked in
+GATE: FAIL - builders disagree; do NOT sign or publish this release
+[exit code: 1]
+RESULT: rejected as expected
+# (b) wall-clock BUILD_DATE instead of SOURCE_DATE_EPOCH (same directory name, builds 2 s apart)
+$ scripts/builder.sh clock-1 . c1c4f83b9dacce7d112597b27d976d84bec21baa /tmp/ssdf-w7.kDrQYg/ablation/clock/one/b
+builder clock-1: d75044357558b2b67c9b86980d124306b687d88065f9c7664ea0e0e27b487bc9  healthsync-1.0.0-darwin-arm64.tar.gz
+builder clock-1: 3f3b0eb91c0905b2758e6856e5fd0a0b3d5deb0e68e344626bbb9c2ab5d87ab3  healthsync-1.0.0-linux-amd64.tar.gz
+[exit code: 0]
+$ scripts/builder.sh clock-2 . c1c4f83b9dacce7d112597b27d976d84bec21baa /tmp/ssdf-w7.kDrQYg/ablation/clock/two/b
+builder clock-2: 9b64be2605b27758d99bada601d750e8472353a7a3023a176cc239ad83486731  healthsync-1.0.0-darwin-arm64.tar.gz
+builder clock-2: 4cad1c0f66dc91d4672e2af2359038c378d820c928dab0839ac3c80fbdfcf7b2  healthsync-1.0.0-linux-amd64.tar.gz
+[exit code: 0]
+$ scripts/compare_builds.sh /tmp/ssdf-w7.kDrQYg/ablation/clock/one/b/out /tmp/ssdf-w7.kDrQYg/ablation/clock/two/b/out
+healthsync-1.0.0-darwin-arm64.tar.gz   d75044357558b2b6.. 9b64be2605b27758.. MISMATCH
+         embedded timestamp: ['2026-10-23T05:11:18Z'] vs ['2026-10-23T05:11:48Z']  <- wall clock of the build host
+healthsync-1.0.0-linux-amd64.tar.gz    3f3b0eb91c0905b2.. 4cad1c0f66dc91d4.. MISMATCH
+         embedded timestamp: ['2026-10-23T05:11:18Z'] vs ['2026-10-23T05:11:48Z']  <- wall clock of the build host
+GATE: FAIL - builders disagree; do NOT sign or publish this release
+[exit code: 1]
+RESULT: rejected as expected
+# (c) host tar/gzip instead of tools/reprotar: repack builder A's IDENTICAL files twice
+$ scripts/compare_builds.sh /tmp/ssdf-w7.kDrQYg/ablation/tar/x/out /tmp/ssdf-w7.kDrQYg/ablation/tar/y/out
+healthsync-1.0.0-linux-amd64.tar.gz    79e40b5a3bb24d91.. fd44fd3d87e0e0e6.. MISMATCH
+     [tar metadata] 4 header field(s) differ, e.g.:
+         healthsync-1.0.0-linux-amd64/healthsync: mtime 2026-10-23 05:11:53 UTC vs 2026-10-23 05:11:56 UTC
+     [content] every file is byte-identical - only the archive wrapping differs
+GATE: FAIL - builders disagree; do NOT sign or publish this release
+[exit code: 1]
+RESULT: rejected as expected
+
+==========================================================================
+TASK 2.4 - Rebuild-and-compare gate catches a compromised builder
+==========================================================================
+# Builder T checks out the same commit, then the (simulated) compromised host slips an
+# extra source file into the tree before compiling - the SolarWinds pattern: the reviewed
+# source is clean, the implant only exists inside the build.
+$ scripts/builder.sh T-compromised . c1c4f83b9dacce7d112597b27d976d84bec21baa /tmp/ssdf-w7.kDrQYg/compromised/builder-t
+builder T-compromised: 528f700049ad4046fed9bffffdbeba8673acd4981425623e819807379fc7c37c  healthsync-1.0.0-darwin-arm64.tar.gz
+builder T-compromised: 46c07b6b876c4f443534fe275c68633169c0339c8e946bfde764f9705f932a89  healthsync-1.0.0-linux-amd64.tar.gz
+[exit code: 0]
+$ scripts/compare_builds.sh /tmp/ssdf-w7.kDrQYg/builder-a/out /tmp/ssdf-w7.kDrQYg/compromised/builder-t/out
+  B1 = /tmp/ssdf-w7.kDrQYg/builder-a/out
+  B2 = /tmp/ssdf-w7.kDrQYg/compromised/builder-t/out
+artifact                               B1 sha256          B2 sha256          result
+healthsync-1.0.0-darwin-arm64.tar.gz   8cf5414380b8773c.. 528f700049ad4046.. MISMATCH
+  -- diagnosis: /tmp/ssdf-w7.kDrQYg/builder-a/out/healthsync-1.0.0-darwin-arm64.tar.gz vs /tmp/ssdf-w7.kDrQYg/compromised/builder-t/out/healthsync-1.0.0-darwin-arm64.tar.gz
+     [content] healthsync-1.0.0-darwin-arm64/healthsync: sha256 60990ea8b1c6 vs e6cb5478191a, 5329338 byte(s) differ, size 9368114 vs 9368258
+         source files only in A: []; only in B: ['cmd/healthsync/zz_build_implant.go']  <- code that is not in the reviewed commit
+healthsync-1.0.0-linux-amd64.tar.gz    ed805f2870f8e143.. 46c07b6b876c4f44.. MISMATCH
+  -- diagnosis: /tmp/ssdf-w7.kDrQYg/builder-a/out/healthsync-1.0.0-linux-amd64.tar.gz vs /tmp/ssdf-w7.kDrQYg/compromised/builder-t/out/healthsync-1.0.0-linux-amd64.tar.gz
+     [content] healthsync-1.0.0-linux-amd64/healthsync: sha256 a086c88e0b88 vs be5641149be0, 5851882 byte(s) differ, size 9825757 vs 9826550
+         source files only in A: []; only in B: ['cmd/healthsync/zz_build_implant.go']  <- code that is not in the reviewed commit
+GATE: FAIL - builders disagree; do NOT sign or publish this release
+[exit code: 1]
+RESULT: rejected as expected
+
+# The same gate runs in CI: .github/workflows/reproducible_release.yml
+#   build (matrix: ubuntu-24.04 + macos-15) -> compare (scripts/compare_builds.sh) -> sign -> verify -> archive
+$ actionlint .github/workflows/reproducible_release.yml
+[exit code: 0]
+actionlint: workflow is valid
+
+==========================================================================
+TASK 3.1 - Release files and hash list
+==========================================================================
+$ cat release/SHA256SUMS
+8cf5414380b8773ca9cc5768f7f4353e99543bdc34e420faf9002835e62c9ed7  healthsync-1.0.0-darwin-arm64.tar.gz
+ed805f2870f8e14383cb0d4699185cf3d318b821d72a437ae51d650ba6325c92  healthsync-1.0.0-linux-amd64.tar.gz
+
+==========================================================================
+TASK 3.2 - Sign the hash list with a key that never touches the build hosts
+==========================================================================
+Signing key  : /root/.ssdf-week7-signer/cosign.key  (outside the repo and every builder directory)
+Public key   : cosign.pub  sha256=5518a9d219db16393003cf21f15a8793ec4359b33e6d5820724aedb96090a723
+-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEA9VbBACyWtzO+aLp2f8i7YF/MuB6
+zWQN+3deem0bTNbg0YDw41cUzQXkE+sooImz6D9IyO5fhOx+4fY4qLVxuQ==
+-----END PUBLIC KEY-----
+Sigstore public-good TUF/Rekor not reachable from this host -> offline key signature
+(transparency-log signing is done by the CI 'sign' job with keyless OIDC certificates)
+$ cosign sign-blob --key /root/.ssdf-week7-signer/cosign.key --use-signing-config=false --tlog-upload=false --yes --bundle release/SHA256SUMS.sigstore.json release/SHA256SUMS
+Flag --use-signing-config has been deprecated, an offline signing flag will be added in the future; TUF will continue to provide a signing config by default if one is not provided manually
+Flag --tlog-upload has been deprecated, prefer using a --signing-config file with no transparency log services
+Using payload from: release/SHA256SUMS
+Signing artifact...
+Wrote bundle to file release/SHA256SUMS.sigstore.json
+[exit code: 0]
+
+==========================================================================
+TASK 3.3 - Verify the release as a consumer would
+==========================================================================
+$ scripts/verify_release.sh release --key cosign.pub
+note: bundle has no transparency-log entry (signed offline); verifying signature only
+[1/2] cosign verify-blob SHA256SUMS
+WARNING: Skipping tlog verification is an insecure practice that lacks transparency and auditability verification for the blob.
+Verified OK
+[2/2] shasum -a 256 -c SHA256SUMS
+healthsync-1.0.0-darwin-arm64.tar.gz: OK
+healthsync-1.0.0-linux-amd64.tar.gz: OK
+RESULT: VERIFIED - signed hash list and all release files check out
+[exit code: 0]
+
+==========================================================================
+TASK 3.4 - NEGATIVE: tampered artifact (implanted binary, original hash list)
+==========================================================================
+$ scripts/verify_release.sh /tmp/ssdf-w7.kDrQYg/attack/1 --key cosign.pub
+note: bundle has no transparency-log entry (signed offline); verifying signature only
+[1/2] cosign verify-blob SHA256SUMS
+WARNING: Skipping tlog verification is an insecure practice that lacks transparency and auditability verification for the blob.
+Verified OK
+[2/2] shasum -a 256 -c SHA256SUMS
+healthsync-1.0.0-darwin-arm64.tar.gz: OK
+healthsync-1.0.0-linux-amd64.tar.gz: FAILED
+shasum: WARNING: 1 computed checksum did NOT match
+RESULT: REJECTED - a release file does not match the signed hash list
+[exit code: 1]
+RESULT: rejected as expected
+
+==========================================================================
+TASK 3.5 - NEGATIVE: forged hash list (attacker also rewrites SHA256SUMS on the download page)
+==========================================================================
+# The forged list now matches the implanted file, so a hash check alone passes:
+$ sh -c cd '/tmp/ssdf-w7.kDrQYg/attack/2' && shasum -a 256 -c SHA256SUMS
+healthsync-1.0.0-darwin-arm64.tar.gz: OK
+healthsync-1.0.0-linux-amd64.tar.gz: OK
+[exit code: 0]
+$ scripts/verify_release.sh /tmp/ssdf-w7.kDrQYg/attack/2 --key cosign.pub
+note: bundle has no transparency-log entry (signed offline); verifying signature only
+[1/2] cosign verify-blob SHA256SUMS
+WARNING: Skipping tlog verification is an insecure practice that lacks transparency and auditability verification for the blob.
+Error: failed to verify signature: could not verify message: invalid signature when validating ASN.1 encoded signature
+error during command execution: failed to verify signature: could not verify message: invalid signature when validating ASN.1 encoded signature
+RESULT: REJECTED - signature on SHA256SUMS is not valid for the trusted signer
+[exit code: 1]
+RESULT: rejected as expected
+
+==========================================================================
+TASK 3.6 - NEGATIVE: forged list re-signed with the attacker's own key
+==========================================================================
+$ cosign verify-blob --key /tmp/ssdf-w7.kDrQYg/attack/attacker.pub --insecure-ignore-tlog=true --bundle /tmp/ssdf-w7.kDrQYg/attack/2/SHA256SUMS.sigstore.json /tmp/ssdf-w7.kDrQYg/attack/2/SHA256SUMS
+WARNING: Skipping tlog verification is an insecure practice that lacks transparency and auditability verification for the blob.
+Verified OK
+[exit code: 0]
+# ^ valid for the attacker's key - which is exactly why consumers pin OUR key:
+$ scripts/verify_release.sh /tmp/ssdf-w7.kDrQYg/attack/2 --key cosign.pub
+note: bundle has no transparency-log entry (signed offline); verifying signature only
+[1/2] cosign verify-blob SHA256SUMS
+WARNING: Skipping tlog verification is an insecure practice that lacks transparency and auditability verification for the blob.
+Error: failed to verify signature: could not verify message: invalid signature when validating ASN.1 encoded signature
+error during command execution: failed to verify signature: could not verify message: invalid signature when validating ASN.1 encoded signature
+RESULT: REJECTED - signature on SHA256SUMS is not valid for the trusted signer
+[exit code: 1]
+RESULT: rejected as expected
+
+==========================================================================
+TASK 3.7 - SBOM of the shipped binary (provenance data, PS.3.2)
+==========================================================================
+$ (cd <extracted healthsync-1.0.0-linux-amd64> && syft file:healthsync --source-name healthsync --source-version 1.0.0 -o cyclonedx-json=release/sbom.cyclonedx.json -q)
+$ python3 - release/sbom.cyclonedx.json
+bomFormat=CycloneDX specVersion=1.7 components=4
+  library      github.com/google/uuid v1.6.0  pkg:golang/github.com/google/uuid@v1.6.0
+  library      healthsync UNKNOWN  pkg:golang/healthsync
+  library      stdlib go1.27.3  pkg:golang/stdlib@1.27.3
+  file         /tmp/ssdf-w7.kDrQYg/sbom/healthsync-1.0.0-linux-amd64/healthsync   
+[exit code: 0]
+
+==========================================================================
+TASK 3.8 - Release manifest (commit, toolchain, dependencies, builders, hashes), signed
+==========================================================================
+$ python3 scripts/make_manifest.py --release-dir release --project-root . --repo-url https://github.com/stonebackasevedodp7877-jpg/ssdf-week7-lab --commit c1c4f83b9dacce7d112597b27d976d84bec21baa --ref v1.0.0 --source-date-epoch 1792731454 --go-version go1.27.3 --builder A: clone, TZ=UTC, umask 022 --builder-sums A=/tmp/ssdf-w7.kDrQYg/builder-a/SHA256SUMS --builder B: clone, TZ=Asia/Shanghai, umask 077, other path --builder-sums B=/tmp/ssdf-w7.kDrQYg/runner-2/home/ci/_work/HealthSync/builder-b/SHA256SUMS --builder C: git-archive export, no .git, TZ=America/Chicago --builder-sums C=/tmp/ssdf-w7.kDrQYg/third-party/builder-c/SHA256SUMS --sbom release/sbom.cyclonedx.json --signing cosign key pair; public key cosign.pub (sha256 5518a9d219db1639...) --built-by local workstation Linux x86_64 via run_lab.sh --out release/release-manifest.json
+wrote release/release-manifest.json: 2 artifacts, 1 dependencies, builders identical=True
+[exit code: 0]
+$ cosign sign-blob --key /root/.ssdf-week7-signer/cosign.key --use-signing-config=false --tlog-upload=false --yes --bundle release/release-manifest.json.sigstore.json release/release-manifest.json
+Flag --use-signing-config has been deprecated, an offline signing flag will be added in the future; TUF will continue to provide a signing config by default if one is not provided manually
+Flag --tlog-upload has been deprecated, prefer using a --signing-config file with no transparency log services
+Using payload from: release/release-manifest.json
+Signing artifact...
+Wrote bundle to file release/release-manifest.json.sigstore.json
+[exit code: 0]
+$ head -c 1200 release/release-manifest.json
+{
+  "schema": "healthsync.release-manifest/v1",
+  "project": "HealthSync",
+  "version": "1.0.0",
+  "source": {
+    "repository": "https://github.com/stonebackasevedodp7877-jpg/ssdf-week7-lab",
+    "ref": "v1.0.0",
+    "commit": "c1c4f83b9dacce7d112597b27d976d84bec21baa",
+    "source_date_epoch": 1792731454,
+    "source_date_utc": "2026-10-23T04:57:34Z"
+  },
+  "toolchain": {
+    "go": "go1.27.3",
+    "pinned_by": "go.mod toolchain directive + GOTOOLCHAIN",
+    "build": {
+      "go_build": "go build -trimpath -buildvcs=false -ldflags \"-buildid= -X main.version=... -X main.commit=<commit> -X main.buildDate=<SOURCE_DATE_EPOCH as UTC>\"",
+      "env": {
+        "CGO_ENABLED": "0",
+        "GOFLAGS": "-mod=vendor",
+        "TZ": "UTC",
+        "LC_ALL": "C",
+        "GOTOOLCHAIN": "<toolchain line of go.mod>"
+      },
+      "targets": [
+        "linux/amd64",
+        "darwin/arm64"
+      ],
+      "packager": "tools/reprotar (sorted entries, mtime=SOURCE_DATE_EPOCH, uid/gid 0, modes 0755/0644, USTAR, gzip without name/time)"
+    }
+  },
+  "dependencies": [
+    {
+      "module": "github.com/google/uuid",
+      "version": "v1.6.0",
+      "go_sum": "h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+
+
+==========================================================================
+TASK 3.9 - Archive verification data APART from the release files (PS.3.1)
+==========================================================================
+$ ls -lR /root/.ssdf-week7-archive/healthsync-1.0.0-c1c4f83b9dac
+/root/.ssdf-week7-archive/healthsync-1.0.0-c1c4f83b9dac:
+total 28
+-r--r--r-- 1 root root  205 Oct 23 00:12 SHA256SUMS
+-r--r--r-- 1 root root  387 Oct 23 00:12 SHA256SUMS.sigstore.json
+dr-xr-xr-x 2 root root 4096 Oct 23 00:12 builders
+-r--r--r-- 1 root root  178 Oct 23 00:12 cosign.pub
+-r--r--r-- 1 root root 3652 Oct 23 00:12 release-manifest.json
+-r--r--r-- 1 root root  387 Oct 23 00:12 release-manifest.json.sigstore.json
+-r--r--r-- 1 root root 3076 Oct 23 00:12 sbom.cyclonedx.json
+
+/root/.ssdf-week7-archive/healthsync-1.0.0-c1c4f83b9dac/builders:
+total 12
+-r--r--r-- 1 root root 205 Oct 23 00:12 A.SHA256SUMS
+-r--r--r-- 1 root root 205 Oct 23 00:12 B.SHA256SUMS
+-r--r--r-- 1 root root 205 Oct 23 00:12 C.SHA256SUMS
+[exit code: 0]
+# Re-check the archived record on its own: manifest signature + its hashes vs. the release
+$ cosign verify-blob --key /root/.ssdf-week7-archive/healthsync-1.0.0-c1c4f83b9dac/cosign.pub --insecure-ignore-tlog=true --bundle /root/.ssdf-week7-archive/healthsync-1.0.0-c1c4f83b9dac/release-manifest.json.sigstore.json /root/.ssdf-week7-archive/healthsync-1.0.0-c1c4f83b9dac/release-manifest.json
+WARNING: Skipping tlog verification is an insecure practice that lacks transparency and auditability verification for the blob.
+Verified OK
+[exit code: 0]
+$ python3 - /root/.ssdf-week7-archive/healthsync-1.0.0-c1c4f83b9dac/release-manifest.json release/SHA256SUMS
+commit=c1c4f83b9dacce7d112597b27d976d84bec21baa toolchain=go1.27.3 builders_identical=True
+manifest artifact hashes match the signed SHA256SUMS: True
+[exit code: 0]
+
+==========================================================================
+SUMMARY
+==========================================================================
+Release                               : v1.0.0 (c1c4f83b9dacce7d112597b27d976d84bec21baa)
+Release SHA-256 (healthsync-1.0.0-linux-amd64.tar.gz) : ed805f2870f8e14383cb0d4699185cf3d318b821d72a437ae51d650ba6325c92
+Break It: starter builds drift        : PASS   (A 06a0261c... vs B 34de4362...)
+Reproducible build (3 builders)       : PASS   (all ed805f28...)
+Each fix necessary (3 ablations)      : PASS
+CI gate rejects compromised builder   : PASS
+Signature (cosign verify-blob)        : PASS
+Tampered artifact rejected            : PASS
+Forged hash list rejected             : PASS
+Untrusted key rejected                : PASS
+Release manifest signed + archived    : PASS
+Completed (UTC)                       : 2026-10-23T05:12:40Z

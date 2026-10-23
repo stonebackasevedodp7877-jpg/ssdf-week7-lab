@@ -5,6 +5,5 @@ cosign.key
 *.key
 __pycache__/
 .lab-work/
-.claude/
 release/*.tar.gz
 evidence/

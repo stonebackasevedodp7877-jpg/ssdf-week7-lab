@@ -97,10 +97,10 @@ section "TASK 1.1 - Break It: build the STARTER project twice from the same comm
 log "# Starter build = reference/Makefile.starter (wall-clock date, no -trimpath, host tar/gzip)."
 log "# Builder A and builder B check out the same commit into different directories,"
 log "# a few seconds apart - exactly what two CI runners or two developers would do."
-run scripts/builder.sh A-starter "$ROOT" "$COMMIT" "$WORK/starter/a" reference/Makefile.starter \
+run scripts/builder.sh A-starter . "$COMMIT" "$WORK/starter/a" reference/Makefile.starter \
   || die "starter build A failed"
 sleep 2
-run scripts/builder.sh B-starter "$ROOT" "$COMMIT" "$WORK/starter/other-checkout/b" reference/Makefile.starter \
+run scripts/builder.sh B-starter . "$COMMIT" "$WORK/starter/other-checkout/b" reference/Makefile.starter \
   || die "starter build B failed"
 SA="$(short "$WORK/starter/a/out/$LINUX_PKG")"; SB="$(short "$WORK/starter/other-checkout/b/out/$LINUX_PKG")"
 log ""
@@ -134,13 +134,13 @@ log "# A: clone, TZ=UTC,               umask 022, LANG=C"
 log "# B: clone, TZ=Asia/Shanghai,     umask 077, LANG=en_US.UTF-8, deeper path, later"
 log "# C: third-party rebuild from a \`git archive\` source export (no .git),"
 log "#    TZ=America/Chicago, COMMIT and SOURCE_DATE_EPOCH passed in explicitly"
-run scripts/builder.sh A "$ROOT" "$COMMIT" "$WORK/builder-a" || die "builder A failed"
+run scripts/builder.sh A . "$COMMIT" "$WORK/builder-a" || die "builder A failed"
 sleep 2
 BUILDER_TZ=Asia/Shanghai BUILDER_UMASK=077 BUILDER_LANG=en_US.UTF-8 \
-  run scripts/builder.sh B "$ROOT" "$COMMIT" "$WORK/runner-2/home/ci/_work/HealthSync/builder-b" || die "builder B failed"
+  run scripts/builder.sh B . "$COMMIT" "$WORK/runner-2/home/ci/_work/HealthSync/builder-b" || die "builder B failed"
 sleep 2
 EXPORT_ONLY=1 BUILDER_TZ=America/Chicago \
-  run scripts/builder.sh C "$ROOT" "$COMMIT" "$WORK/third-party/builder-c" || die "builder C failed"
+  run scripts/builder.sh C . "$COMMIT" "$WORK/third-party/builder-c" || die "builder C failed"
 BA="$WORK/builder-a/out"; BB="$WORK/runner-2/home/ci/_work/HealthSync/builder-b/out"; BC="$WORK/third-party/builder-c/out"
 gate "$EV/task2_reproducible_compare.txt" "" "$BA" "$BB" "$BC"
 REPRO_RC=$?
@@ -156,15 +156,15 @@ ABL_OK=0
 export BUILDER_GOCACHE="$WORK/shared-gocache"   # speed only: these builds are expected to differ
 log "# (ablation builders share one Go build cache for speed; builders A, B, C and T above/below each use a fresh one)"
 log "# (a) without -trimpath, two checkouts in different directories"
-MAKE_ARGS="TRIMPATH=" run scripts/builder.sh noTrim-1 "$ROOT" "$COMMIT" "$WORK/ablation/trim/one" >/dev/null || die "ablation build failed"
-MAKE_ARGS="TRIMPATH=" run scripts/builder.sh noTrim-2 "$ROOT" "$COMMIT" "$WORK/ablation/trim/two/deeper" >/dev/null || die "ablation build failed"
+MAKE_ARGS="TRIMPATH=" run scripts/builder.sh noTrim-1 . "$COMMIT" "$WORK/ablation/trim/one" >/dev/null || die "ablation build failed"
+MAKE_ARGS="TRIMPATH=" run scripts/builder.sh noTrim-2 . "$COMMIT" "$WORK/ablation/trim/two/deeper" >/dev/null || die "ablation build failed"
 gate "$EV/task2_ablation_trimpath.txt" "MISMATCH|absolute build path|GATE" "$WORK/ablation/trim/one/out" "$WORK/ablation/trim/two/deeper/out"
 expect_fail $? || ABL_OK=1
 
 log "# (b) wall-clock BUILD_DATE instead of SOURCE_DATE_EPOCH (same directory name, builds 2 s apart)"
-MAKE_ARGS="BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" run scripts/builder.sh clock-1 "$ROOT" "$COMMIT" "$WORK/ablation/clock/one/b" >/dev/null || die "ablation build failed"
+MAKE_ARGS="BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" run scripts/builder.sh clock-1 . "$COMMIT" "$WORK/ablation/clock/one/b" >/dev/null || die "ablation build failed"
 sleep 2
-MAKE_ARGS="BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" run scripts/builder.sh clock-2 "$ROOT" "$COMMIT" "$WORK/ablation/clock/two/b" >/dev/null || die "ablation build failed"
+MAKE_ARGS="BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" run scripts/builder.sh clock-2 . "$COMMIT" "$WORK/ablation/clock/two/b" >/dev/null || die "ablation build failed"
 gate "$EV/task2_ablation_clock.txt" "MISMATCH|embedded timestamp|GATE" "$WORK/ablation/clock/one/b/out" "$WORK/ablation/clock/two/b/out"
 expect_fail $? || ABL_OK=1
 
@@ -186,7 +186,7 @@ section "TASK 2.4 - Rebuild-and-compare gate catches a compromised builder"
 log "# Builder T checks out the same commit, then the (simulated) compromised host slips an"
 log "# extra source file into the tree before compiling - the SolarWinds pattern: the reviewed"
 log "# source is clean, the implant only exists inside the build."
-TAMPER=1 run scripts/builder.sh T-compromised "$ROOT" "$COMMIT" "$WORK/compromised/builder-t" || die "builder T failed"
+TAMPER=1 run scripts/builder.sh T-compromised . "$COMMIT" "$WORK/compromised/builder-t" || die "builder T failed"
 gate "$EV/task2_tampered_builder_compare.txt" "" "$BA" "$WORK/compromised/builder-t/out"
 expect_fail $?; GATE_OK=$?
 
@@ -271,7 +271,7 @@ for c in b.get("components", []):
 PY
 
 section "TASK 3.8 - Release manifest (commit, toolchain, dependencies, builders, hashes), signed"
-run python3 scripts/make_manifest.py --release-dir "$REL" --project-root "$ROOT" \
+run python3 scripts/make_manifest.py --release-dir "$REL" --project-root . \
   --repo-url "${REPO_URL:-local}" --commit "$COMMIT" --ref "$REF" --source-date-epoch "$EPOCH" \
   --go-version "$PINNED" \
   --builder "A: clone, TZ=UTC, umask 022" --builder-sums "A=$WORK/builder-a/SHA256SUMS" \
